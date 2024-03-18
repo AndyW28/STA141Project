@@ -1,0 +1,937 @@
+---
+title: "STA 141A course project"
+author: "Yuting Wang"
+date: "`r Sys.Date()`"
+output: html_document
+---
+## Abstract
+
+This project embarks on an analytical journey through a subset of neural activity data collected by Steinmetz et al. (2019) from experiments conducted on mice. By focusing on the spike trains of neurons within the visual cortex in response to varying visual stimuli, we aim to construct a predictive model that accurately forecasts the outcomes of trials based on neural responses and stimulus conditions. The dataset comprises 18 sessions from four mice, offering a rich basis for exploratory data analysis, data integration, and predictive modeling. Through a comprehensive three-part approach, we explore the data's structure, integrate findings across sessions to consolidate our dataset, and build a model to predict trial outcomes. The project culminates in the evaluation of the model's performance on test sets from two key sessions, providing insights into the potential of neural activity data to predict behavioral responses. This study not only aims to contribute to the understanding of sensory-driven decision-making processes in neuroscience but also showcases the application of data science techniques in biological data analysis.
+
+## Section 1 Introduction
+
+The interplay between sensory stimuli and behavioral responses in mammals, particularly in the context of decision-making, remains a focal area of research in neuroscience. The pioneering work of Steinmetz et al. (2019) offers an unprecedented look into this dynamic, through extensive experiments involving visual stimuli and mice. This project, situated within the STA 141A course for Winter 2024, leverages a subset of Steinmetz et al.'s data to delve deeper into the neural underpinnings of decision-making. By examining spike trains from the visual cortex of mice in reaction to various contrast levels of visual stimuli, we aim to uncover patterns that predict the outcomes of these trials—success or failure based on the mice's decisions.
+
+Our methodology is segmented into three critical parts: Firstly, exploratory data analysis provides a foundational understanding of the dataset's structure, including the diversity of neural responses and their correlation with stimuli and behavioral outcomes. Secondly, data integration focuses on harmonizing data across different sessions, identifying commonalities and differences to forge a cohesive dataset that enriches our model's training process. The final segment involves constructing and refining a predictive model that uses neural activity data, alongside stimulus conditions, to anticipate trial outcomes.
+
+The significance of this project extends beyond the academic scope of STA 141A, aiming to contribute to the broader field of computational neuroscience. By applying data science methodologies to complex biological data, we endeavor to enhance our understanding of how sensory information influences decision-making processes in the brain. This venture not only highlights the potential of interdisciplinary approaches in unraveling the mysteries of the brain but also underscores the importance of predictive modeling in advancing our comprehension of neural mechanisms underlying behavior.
+
+## Section 2 Exploratory analysis
+
+```{r,echo=FALSE}
+session=list()
+for(i in 1:18){
+  session[[i]]=readRDS(paste('./Data/session',i,'.rds',sep=''))
+}
+```
+
+### Part i Data structure
+contrast_left: Contrast of the left stimulus. A numeric vector.
+
+contrast_right: Contrast of the right stimulus. A numeric vector.
+
+feedback type: Type of the feedback, 1 for success and -1 for failure
+
+mouse_name: A character vector with a single element. Representing the name of the mouse in the seesion.
+
+brain_area: Area of the brain where each neuron lives. A character vector.
+
+date_exp: A character vector with a single element. Date when this session is being down.
+
+spks: A list. Numbers of spikes of neurons in the visual cortex in time bins defined in time.
+
+time: A list. Centers of the time bins for spks.
+
+Take session 1 as an example.
+
+```{r,echo=FALSE}
+print(sprintf("There are a total of %d neurons in session 1, trail 1", dim(session[[1]]$spks[[1]])[1]))
+
+print(sprintf("There are a total of %d neurons in session 1, trail 2", dim(session[[1]]$spks[[2]])[1]))
+
+print(sprintf("There are a total of %d trails in session 1", length(session[[1]]$spks)))
+
+print(sprintf("The mouse participating in session 1 is called %s", session[[1]]$mouse_name))
+
+print(sprintf("The experiment date of session 1 is %s", session[[1]]$date_exp))
+
+unique_brain_areas = unique(session[[1]]$brain_area)
+
+cat("Brain areas involve in session 1 are:\n")
+for (brain_area in unique_brain_areas) {
+    cat(sprintf("- %s\n", brain_area))
+}
+```
+### Part ii Neural activities during each trial
+
+Take session 1 trail 1 as an example.
+
+```{r,echo=FALSE}
+print(sprintf("In trial 1 of session 1, there are %d bin.", ones_count <- sum(session[[1]]$spks[[1]])))
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Sum activations for each neuron across all 40 time points
+total_activations_per_neuron <- rowSums(session[[1]]$spks[[1]])
+
+# Combine the activations with their corresponding brain areas
+combined_data <- data.frame(brain_area = session[[1]]$brain_area, activations = total_activations_per_neuron)
+
+# Use dplyr to aggregate the total activations by brain area
+library(dplyr)
+total_activations_by_area <- combined_data %>%
+  group_by(brain_area) %>%
+  summarise(total_activations = sum(activations))
+
+# Print the result
+print(total_activations_by_area)
+```
+
+### Part iii Changes across trials
+```{r, echo=FALSE}
+library(dplyr)
+library(ggplot2)
+# Initialize a list to store total activations by area for each trial
+total_activations_by_area_per_trial <- list()
+
+# Loop through each trial in 'spks'
+for (i in seq_along(session[[1]]$spks)) {
+  # Sum activations for each neuron across all time points in the current trial
+  total_activations_per_neuron <- rowSums(session[[1]]$spks[[i]])
+  
+  # Combine the activations with their corresponding brain areas
+  combined_data <- data.frame(trial = i, 
+                              brain_area = session[[1]]$brain_area, 
+                              activations = total_activations_per_neuron)
+  
+  # Use dplyr to aggregate the total activations by brain area for the current trial
+  total_activations_by_area <- combined_data %>%
+    group_by(trial, brain_area) %>%
+    summarise(total_activations = sum(activations), .groups = 'drop')
+  
+  # Store the result
+  total_activations_by_area_per_trial[[i]] <- total_activations_by_area
+}
+
+# Combine the results for all trials into a single data frame
+total_activations_by_area_all_trials <- bind_rows(total_activations_by_area_per_trial)
+
+# Plot the result: total activations by brain area across all trials
+ggplot(total_activations_by_area_all_trials, aes(x = factor(trial), y = total_activations, fill = brain_area)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  theme_minimal() +
+  labs(x = "Trial", y = "Total Activations", title = "Total Neural Activations by Brain Area Across Trials") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_viridis_d(begin = 0.3, end = 0.9, name = "Brain Area")
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Convert 'trial' from a factor to numeric to use a continuous scale on the x-axis
+total_activations_by_area_all_trials$trial_numeric <- as.numeric(as.character(total_activations_by_area_all_trials$trial))
+
+# Now, plot the results using the numeric trial numbers
+ggplot(total_activations_by_area_all_trials, aes(x = trial_numeric, y = total_activations)) +
+  geom_bar(stat = "identity", position = position_dodge(), aes(fill = brain_area), width = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, aes(group = brain_area, color = brain_area)) +  # Add a fitted line
+  facet_wrap(~ brain_area, scales = "free_y") +  # Create separate graphs for each brain area
+  theme_minimal() +
+  labs(x = "Trial (Continuous)", y = "Total Activations", title = "Total Neural Activations by Brain Area Across Trials") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +  # Adjustments for legibility
+  scale_fill_viridis_d(begin = 0.3, end = 0.9)  # Using viridis color scale for better visualization
+```
+
+In Part III, I use session 1 as an example to illustrate changes across trials. Initially, I attempted to compile all neural activity into one graph, which proved difficult to interpret. Consequently, I modified the approach by dividing the large graph into eight smaller graphs based on brain area. Further adjustments were made to the y-axis, and a fitted line was added to better discern changes. From session 1, it's observable that for mouse Cori, the neural activity in every part of the brain shows a decreasing trend. This decrease could be attributed to the repetition of trials, potentially causing fatigue in Cori. Notably, the brain areas 'VISP' and 'LS' were the most active during the experiment. This suggests that these two parts of the brain might play significant roles in decision-making related to selecting left or right options.
+
+### Part iv Homogeneity and Heterogeneity across sessions and mice
+
+```{r, echo=FALSE}
+# Initialize a data frame to store success rates, mouse names, and experiment dates for each session
+success_rates_df <- data.frame(session_number = integer(18), 
+                               mouse_name = character(18),
+                               date_exp = character(18), 
+                               success_rate = numeric(18), 
+                               stringsAsFactors = FALSE) # Prevent conversion to factors
+
+for (i in 1:18) {
+  # Calculate the success rate as the percentage of 1s in the feedback_type vector
+  success_rate <- mean(session[[i]]$feedback_type == 1) * 100
+  
+  # Extract the mouse name for the current session
+  mouse_name <- session[[i]]$mouse_name
+  
+  # Extract the experiment date for the current session
+  date_exp <- session[[i]]$date_exp
+  
+  # Fill the data frame with session number, mouse name, date of experiment, and success rate
+  success_rates_df[i, ] <- c(i, mouse_name, date_exp, success_rate)
+}
+
+# Set column names for clarity
+colnames(success_rates_df) <- c("Session Number", "Mouse Name", "Date of Experiment", "Success Rate (%)")
+
+# Print the data frame as a table
+print(success_rates_df)
+```
+```{r, echo=FALSE}
+library(dplyr)
+
+# Assuming session is your main data list, and it has at least 3 elements (sessions)
+for (i in 1:3) {
+  # Sum activations for each neuron across all 40 time points for session i
+  total_activations_per_neuron <- rowSums(session[[i]]$spks[[1]])
+  
+  # Combine the activations with their corresponding brain areas
+  combined_data <- data.frame(brain_area = session[[i]]$brain_area, 
+                              activations = total_activations_per_neuron)
+  
+  # Aggregate the total activations by brain area
+  total_activations_by_area <- combined_data %>%
+    group_by(brain_area) %>%
+    summarise(total_activations = sum(activations), .groups = 'drop') # Ensure the group_by is properly dropped after summarise
+  
+  # Print the result for the current session
+  cat(sprintf("\nTotal activations by brain area for session %d:\n", i))
+  print(total_activations_by_area)
+}
+```
+
+In order to understand the homogeneity and heterogeneity across sessions, analyzing the success rates appears to be a reasonable approach, especially since the brain areas measured in each session vary. From the table above, we can observe that the success rates for all four mice increase across sessions. This could be attributed to the repeated training of the mice, as suggested by the continuous dates of the experiments without significant gaps. Taking the mouse named Cori as an example, in all its three sessions, the 'VIS' area is consistently active. This suggests that this part of the brain might play a significant role in decision-making related to selecting left or right options. However, verifying this hypothesis is challenging without a deeper understanding of brain and neural science.
+
+```{r,echo=FALSE}
+# Initialize an empty data frame to store the results
+results_df <- data.frame(mouse_name=character(),
+                         contrast_value=numeric(),
+                         percentage=numeric(),
+                         side=character(),
+                         session_id=integer(),
+                         stringsAsFactors = FALSE) # Ensure factors are not automatically created
+
+for (i in 1:length(session)) {
+  current_session = session[[i]]
+  mouse_name <- current_session$mouse_name
+  
+  # Handling contrast_left
+  contrast_left <- current_session$contrast_left
+  contrast_left_table <- table(contrast_left) / length(contrast_left) * 100
+  contrast_left_df <- data.frame(contrast_value = names(contrast_left_table),
+                                 percentage = as.numeric(contrast_left_table),
+                                 stringsAsFactors = FALSE)
+  contrast_left_df$mouse_name <- mouse_name
+  contrast_left_df$side <- 'left'
+  contrast_left_df$session_id <- i
+  
+  # Handling contrast_right
+  contrast_right <- current_session$contrast_right
+  contrast_right_table <- table(contrast_right) / length(contrast_right) * 100
+  contrast_right_df <- data.frame(contrast_value = names(contrast_right_table),
+                                  percentage = as.numeric(contrast_right_table),
+                                  stringsAsFactors = FALSE)
+  contrast_right_df$mouse_name <- mouse_name
+  contrast_right_df$side <- 'right'
+  contrast_right_df$session_id <- i
+  
+  # Ensure both data frames have the same column names and order
+  contrast_left_df <- contrast_left_df[, c("mouse_name", "contrast_value", "percentage", "side", "session_id")]
+  contrast_right_df <- contrast_right_df[, c("mouse_name", "contrast_value", "percentage", "side", "session_id")]
+
+  # Combining the left and right contrasts for the session
+  session_df <- rbind(contrast_left_df, contrast_right_df)
+  
+  # Adding to the overall results dataframe
+  results_df <- rbind(results_df, session_df)
+}
+
+# Plotting
+ggplot(data = results_df, aes(x = contrast_value, y = percentage, fill = side)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~mouse_name, scales = "free_x") + # Facet by mouse name to separate plots for each mouse
+  labs(title = "Percentage of Contrast Values per Side and Mouse",
+       x = "Contrast Value",
+       y = "Percentage",
+       fill = "Side") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Improve readability of x labels
+
+# Display the plot
+ggsave("contrast_values_distribution.png", width = 10, height = 8)
+```
+
+From the above graph, we can see that the patterns of reaction among the mice are similar. They tend to favor the contrast level 0, which indicates inactivity. For levels 0.25, 0.5, and 1, the mice tend to prefer contrast level 1. This indicates that when the mice receive a signal, they tend to make a sure decision rather than an uncertain one.
+
+## Section 3 Data integration
+
+In Section 2, I simply browsed the data to gain an overall understanding. Now, in this section, I will propose an approach to combine data across trials by extracting shared patterns across sessions and addressing the differences between them.
+
+At the start of this section, I use R code to process and combine experimental trial data from multiple sessions into a single, structured dataset. 
+
+I begins by defining a sequence of bin names, which are likely used for temporal segmentation within each trial. The main functionality is encapsulated within two functions: get_trail_functional_data and get_session_functional_data.
+
+The get_trail_functional_data function retrieves and processes the spike data for a single trial within a session. I calculates the average spike rate for each time bin and compiles this along with other trial-specific information (such as contrast levels on the left and right, and the feedback type) into a tidy data frame (tibble).
+
+The get_session_functional_data function iterates over all trials in a given session, applying get_trail_functional_data to each, and then aggregates the results into a single data frame that represents the entire session. This includes appending session-wide metadata like the mouse's name and the experiment date.
+
+After processing individual sessions, the script aggregates data across all sessions (assumed to be 18 in total) into a comprehensive dataset. Additional columns are then calculated and added to this dataset, such as the absolute difference between left and right contrast levels and a binary success indicator based on the feedback type.
+```{r, include=FALSE}
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+install.packages("scales")
+library(tidyverse)
+library(pROC)
+```
+
+```{r, include=FALSE}
+binename <- paste0("bin", as.character(1:40))
+
+get_trail_functional_data <- function(session_id, trail_id) {
+  spikes <- session[[session_id]]$spks[[trail_id]]
+  if (any(is.na(spikes))) {
+    disp("value missing")
+  }
+  
+  trail_bin_average <- matrix(colMeans(spikes), nrow = 1)
+  colnames(trail_bin_average) <- binename
+  
+  trail_tibble <- as_tibble(trail_bin_average) %>%
+    add_column(trail_id = trail_id) %>%
+    add_column(contrast_left = session[[session_id]]$contrast_left[trail_id]) %>%
+    add_column(contrast_right = session[[session_id]]$contrast_right[trail_id]) %>%
+    add_column(feedback_type = session[[session_id]]$feedback_type[trail_id])
+  
+  trail_tibble
+}
+
+get_session_functional_data <- function(session_id) {
+  n_trail <- length(session[[session_id]]$spks)
+  trail_list <- list()
+  
+  for (trail_id in 1:n_trail) {
+    trail_tibble <- get_trail_functional_data(session_id, trail_id)
+    trail_list[[trail_id]] <- trail_tibble
+  }
+  
+  session_tibble <- as_tibble(do.call(rbind, trail_list)) %>%
+    add_column(mouse_name = session[[session_id]]$mouse_name) %>%
+    add_column(date_exp = session[[session_id]]$date_exp) %>%
+    add_column(session_id = session_id)
+  
+  session_tibble
+}
+
+session_list <- list()
+for (session_id in 1:18) {
+  session_list[[session_id]] <- get_session_functional_data(session_id)
+}
+
+full_functional_tibble <- as_tibble(do.call(rbind, session_list))
+full_functional_tibble$session_id <- as.factor(full_functional_tibble$session_id)
+full_functional_tibble$contrast_diff <- abs(full_functional_tibble$contrast_left - full_functional_tibble$contrast_right)
+full_functional_tibble$success <- as.numeric(full_functional_tibble$feedback_type == 1)
+```
+
+### The distribution of contrast difference distribution:
+
+```{r,echo=FALSE}
+full_functional_tibble %>% group_by(contrast_diff) %>% count() %>% 
+  ungroup() %>% 
+  mutate(perc = `n` / sum(`n`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+```
+
+The relationship between contrast_diff and perc in the provided dataset reveals an inverse relationship, where as the value of contrast_diff increases, the percentage (perc) generally decreases.
+
+0.00 contrast_diff has the highest percentage, 33.18% (perc), indicating that the instances with no contrast difference are the most common within this dataset.
+
+As contrast_diff increases to 0.25, 0.50, 0.75, and 1.00, the percentages decrease (from 14.13% for 0.25 to 17.56% for 1.00), except for a notable increase at the 1.00 level compared to the 0.75 level. This general trend suggests that as the contrast difference becomes more pronounced, such instances become less frequent, with a slight deviation in this pattern between the 0.75 and 1.00 levels.
+
+### The contrast difference and the success rate
+
+```{r,echo=FALSE}
+full_functional_tibble %>% group_by(contrast_diff) %>% summarize(success_rate = mean(success, na.rm = TRUE))
+```
+The data suggests a generally positive but non-linear relationship between contrast difference and success rate, indicating that while higher contrast differences are generally associated with higher success rates
+
+### The success rate difference among mice and the different distributions of contrast difference. 
+
+```{r,echo=FALSE}
+counts_df <- full_functional_tibble[c('mouse_name', 'contrast_diff')]
+counts_df$contrast_diff <- as.factor(counts_df$contrast_diff)
+counts <- table(counts_df)
+
+percentages <- prop.table(counts, margin = 1)
+
+# Convert 'success' variable to numeric for use as dependent variable
+full_functional_tibble$success <- as.numeric(full_functional_tibble$success)
+
+# Perform two-way ANOVA
+anova_result <- aov(success ~ mouse_name + contrast_diff, data = full_functional_tibble)
+
+# Summary of the ANOVA results
+summary(anova_result)
+```
+
+The success rate difference among mice is significantly influenced by the different distributions of contrast difference. This is supported by the statistical evidence indicating a strong association between contrast difference and success rates, as demonstrated by the analysis results showing a substantial effect of contrast difference on outcome measures.
+
+### Dimension Reduction through PCA
+
+```{r,echo=FALSE}
+# Load required library
+library(ggplot2)
+
+# Select the first 40 features from the full dataset for PCA analysis
+features <- full_functional_tibble[, 1:40]
+
+# Scale the features to have zero mean and unit variance
+scaled_features <- scale(features)
+
+# Perform Principal Component Analysis (PCA) on the scaled features
+pca_result <- prcomp(scaled_features)
+
+# Convert PCA results to a data frame for plotting
+pc_df <- as.data.frame(pca_result$x)
+
+# Add 'session_id' and 'mouse_name' from the original dataset for labeling
+pc_df$session_id <- full_functional_tibble$session_id
+pc_df$mouse_name <- full_functional_tibble$mouse_name
+```
+
+```{r,echo=FALSE}
+# Plot PC1 vs PC2, coloring points by session ID
+ggplot(pc_df, aes(x = PC1, y = PC2, color = session_id)) +
+  geom_point() +
+  labs(title = "PCA: PC1 vs PC2 by Session",
+       x = "Principal Component 1",
+       y = "Principal Component 2",
+       color = "Session ID") +
+  theme_minimal()
+# Plot PC1 vs PC2, coloring points by mouse name
+ggplot(pc_df, aes(x = PC1, y = PC2, color = mouse_name)) +
+  geom_point() +
+  labs(title = "PCA: PC1 vs PC2 by Mouse",
+       x = "Principal Component 1",
+       y = "Principal Component 2",
+       color = "Mouse Name") +
+  theme_minimal()
+```
+
+From these two PCA graphs, we can observe that the variance in the data is quite similar across different mice and sessions. Despite some differences on the left part of the graph, most of the data are centered on the right. This similarity allows us to better fit and train the model we plan to use in subsequent analyses.
+
+## Section 4 Predictive modeling
+
+First, I prepare the data by selecting relevant features, converting data types as necessary, creating labels, and generating a model matrix.
+
+```{r, include=FALSE}
+# Define the features to be used for prediction
+predictive_feature <- c("session_id", "trail_id", "contrast_right", "contrast_left", "contrast_diff", binename)
+
+# Subset the dataset to include only the selected features
+predictive_dat <- full_functional_tibble[predictive_feature]
+
+# Convert 'trail_id' to numeric if it's not already numeric
+predictive_dat$trail_id <- as.numeric(predictive_dat$trail_id)
+
+# Convert the 'success' variable to numeric for use as labels
+label <- as.numeric(full_functional_tibble$success)
+
+# Create model matrix including dummy variables for categorical features
+X <- model.matrix(~ ., predictive_dat)
+```
+
+### XGBoost model
+The reason for using an XGBoost model in this context is its superior performance and the importance of the features it provides. XGBoost is renowned for its high performance and scalability, efficiently handling large datasets and often outperforming other machine learning algorithms in predictive accuracy. Additionally, XGBoost offers feature importance scores, which are instrumental in discerning which features contribute most to the model's predictions, aiding in feature selection and interpretation.
+
+```{r, include=FALSE}
+# Load necessary libraries
+library(caret)
+library(xgboost)
+library(pROC)
+
+# Set seed for reproducibility
+set.seed(1)
+
+# Split the data into training and testing sets
+trainIndex <- createDataPartition(label, p = .8, list = FALSE, times = 1)
+train_df <- predictive_dat[trainIndex, ]
+train_X <- X[trainIndex,]
+test_df <- predictive_dat[-trainIndex, ]
+test_X <- X[-trainIndex,]
+train_label <- label[trainIndex]
+test_label <- label[-trainIndex]
+```
+
+```{r, echo=FALSE}
+# Train an XGBoost model
+xgb_model <- xgboost(data = train_X, label = train_label, objective = "binary:logistic", nrounds = 10)
+```
+The log-loss values decrease as the number of boosting rounds increases, indicating that the model is improving in terms of its predictive performance over successive rounds.
+
+The decreasing trend suggests that the model is effectively learning from the training data and refining its predictions.
+
+Specifically, the initial log-loss value is relatively high at 0.600422, indicating that the model's predictions are initially quite inaccurate.
+
+However, as the number of boosting rounds increases, the log-loss steadily decreases, reaching a value of 0.385322 by the 10th round. This suggests that the model is learning from the data and improving its predictive performance over the training iterations.
+
+Overall, the decreasing trend of the log-loss values during training is indicative of the XGBoost model's ability to learn from the data and improve its predictions over time.
+
+```{r, echo=FALSE}
+predictions <- predict(xgb_model, newdata = test_X)
+predicted_labels <- as.numeric(ifelse(predictions > 0.5, 1, 0))
+accuracy <- mean(predicted_labels == test_label)
+paste("The prediction accuracy of the XGBoost model is", accuracy, ".")
+```
+
+```{r, echo=FALSE}
+conf_matrix <- confusionMatrix(as.factor(predicted_labels), as.factor(test_label))
+conf_matrix$table
+```
+Then I try to use the confusion matrix which provides insights into the performance of the classification model, allowing for a more detailed evaluation beyond simple accuracy.
+
+From the confusion matrix:
+True Positives: There are 674 instances where the model correctly predicted the positive class (1) when the true label was also positive (1).
+True Negatives: There are 65 instances where the model correctly predicted the negative class (0) when the true label was also negative (0).
+False Positives: There are 66 instances where the model incorrectly predicted the positive class (1) when the true label was actually negative (0).
+False Negatives: There are 211 instances where the model incorrectly predicted the negative class (0) when the true label was actually positive (1).
+
+```{r, include=FALSE}
+auroc <- roc(test_label, predictions)
+auroc
+```
+
+Then I calculates the Area Under the Receiver Operating Characteristic curve, which is a common metric used to evaluate the performance.
+
+Area under the curve: 0.7272
+
+### logistic regression model
+
+The use of a logistic regression model in this context is motivated by its resistance to overfitting and its output flexibility. When faced with a large number of features, logistic regression tends to be less susceptible to overfitting, particularly when regularization techniques are employed. Moreover, it can be adapted for multiclass classification through multinomial logistic regression and is capable of handling ordinal dependent variables with ordinal logistic regression.
+
+```{r, include=FALSE}
+# Train logistic regression model
+logit_model <- glm(train_label ~ ., data = train_df, family = binomial)
+
+# Make predictions on the test set
+logit_predictions <- predict(logit_model, newdata = test_df, type = "response")
+
+# Convert probabilities to binary labels
+logit_predicted_labels <- as.numeric(ifelse(logit_predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+logit_accuracy <- mean(logit_predicted_labels == test_label)
+
+# Compute confusion matrix
+logit_conf_matrix <- confusionMatrix(as.factor(logit_predicted_labels), as.factor(test_label))
+
+# Calculate AUROC
+logit_auroc <- roc(test_label, logit_predictions)
+```
+
+```{r, echo=FALSE}
+# Print results
+logit_accuracy
+logit_conf_matrix$table
+logit_auroc
+```
+The interpretation are similar as the XGBoost model.
+
+### GBM model
+
+The adoption of a Gradient Boosting Machine (GBM) model in this scenario is driven by its predictive power and model complexity. GBM excels in scenarios where the relationship between predictors and the outcome is intricate, as it builds an ensemble of weak prediction models, typically decision trees, to form strong predictive models. Its strength lies in its ability to capture non-linear relationships and interactions between features, making it particularly effective for complex datasets that may confound simpler models. Additionally, GBM can accommodate various types of loss functions, making it versatile for different prediction tasks. While GBM models can be prone to overfitting, this risk can be mitigated through the use of techniques such as cross-validation and parameter tuning, ensuring the model remains robust and generalizable.
+
+```{r, include=FALSE}
+install.packages("gbm")
+# Load necessary library
+library(gbm)
+
+# Train GBM model
+gbm_model <- gbm(formula = train_label ~ ., data = train_df, distribution = "bernoulli", n.trees = 100, interaction.depth = 4)
+
+# Make predictions on the test set
+gbm_predictions <- predict(gbm_model, newdata = test_df, type = "response", n.trees = 100)
+
+# Convert probabilities to binary labels
+gbm_predicted_labels <- as.numeric(ifelse(gbm_predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+gbm_accuracy <- mean(gbm_predicted_labels == test_label)
+
+# Compute confusion matrix
+gbm_conf_matrix <- confusionMatrix(as.factor(gbm_predicted_labels), as.factor(test_label))
+
+```
+
+```{r, echo=FALSE}
+# Print results
+gbm_accuracy
+gbm_conf_matrix$table
+```
+
+The interpretation are similar as the XGBoost model.
+
+## Section 5 Prediction performance on the test sets
+
+First, I load the testdata and reshape it into the same form as the trainning data.
+
+```{r, echo=FALSE}
+testdata=list()
+for(i in 1:2){
+  testdata[[i]]=readRDS(paste('./testdata/test', i, '.rds', sep=''))
+}
+```
+
+```{r, echo=FALSE}
+get_test_trail_data <- function(test_data, trail_id) {
+  spikes <- test_data$spks[[trail_id]]
+  if (any(is.na(spikes))) {
+    warning("value missing")
+  }
+  
+  trail_bin_average <- matrix(colMeans(spikes, na.rm = TRUE), nrow = 1)
+  colnames(trail_bin_average) <- binename
+  
+  trail_tibble <- tibble(trail_bin_average) %>%
+    mutate(trail_id = trail_id,
+           contrast_left = test_data$contrast_left[trail_id],
+           contrast_right = test_data$contrast_right[trail_id],
+           feedback_type = test_data$feedback_type[trail_id])
+  
+  return(trail_tibble)
+}
+
+get_testdata_functional_data <- function(test_data) {
+  n_trail <- length(test_data$spks)
+  trail_list <- vector("list", n_trail)
+  
+  for (trail_id in 1:n_trail) {
+    trail_list[[trail_id]] <- get_test_trail_data(test_data, trail_id)
+  }
+  
+  test_tibble <- bind_rows(trail_list) %>%
+    mutate(mouse_name = test_data$mouse_name, # Assuming this info is available
+           date_exp = test_data$date_exp, # Assuming this info is available
+           session_id = "test_session") # Or any identifier you find suitable
+  
+  test_tibble$contrast_diff <- abs(test_tibble$contrast_left - test_tibble$contrast_right)
+  test_tibble$success <- as.numeric(test_tibble$feedback_type == 1)
+  
+  return(test_tibble)
+}
+
+processed_testdata <- list()
+
+for (i in 1:length(testdata)) {
+  processed_testdata[[i]] <- get_testdata_functional_data(testdata[[i]])
+}
+```
+
+### XGBoost model
+
+```{r, echo=FALSE, warning=FALSE}
+# Set seed for reproducibility
+set.seed(1)
+
+# Identify rows corresponding to session 18
+session_18_row <- which(full_functional_tibble$session_id == 18)
+
+# Sample 100 rows for testing, without replacement
+testIndex <- sample(session_18_row, 100, replace = FALSE)
+
+# Create training index excluding the test index
+trainIndex <- 1:nrow(full_functional_tibble)
+trainIndex <- trainIndex[!(trainIndex %in% testIndex)]
+
+# Split data into training and testing sets
+train_df <- predictive_dat[trainIndex, ]
+train_X <- X[trainIndex, ]
+test_df <- predictive_dat[-trainIndex, ]
+test_X <- X[-trainIndex, ]
+
+# Assign labels for training and testing sets
+train_label <- label[trainIndex]
+test_label <- label[-trainIndex]
+
+# Train an XGBoost model
+xgb_model <- xgboost(data = train_X, label = train_label, objective = "binary:logistic", nrounds = 10)
+
+# Make predictions on the test set
+predictions <- predict(xgb_model, newdata = test_X)
+
+# Convert probabilities to binary labels
+predicted_labels <- as.numeric(ifelse(predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+accuracy <- mean(predicted_labels == test_label)
+
+# Compute confusion matrix
+conf_matrix <- confusionMatrix(as.factor(predicted_labels), as.factor(test_label))
+
+# Calculate AUROC
+auroc <- roc(test_label, predictions)
+
+# Print results
+accuracy
+conf_matrix$table
+auroc
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+# Set seed for reproducibility
+set.seed(1)
+
+# Identify rows corresponding to session 1
+session_1_row <- which(full_functional_tibble$session_id == 1)
+
+# Sample 100 rows for testing, without replacement
+testIndex <- sample(session_1_row, 100, replace = FALSE)
+
+# Create training index excluding the test index
+trainIndex <- 1:nrow(full_functional_tibble)
+trainIndex <- trainIndex[!(trainIndex %in% testIndex)]
+
+# Split data into training and testing sets
+train_df <- predictive_dat[trainIndex, ]
+train_X <- X[trainIndex, ]
+test_df <- predictive_dat[-trainIndex, ]
+test_X <- X[-trainIndex, ]
+
+# Assign labels for training and testing sets
+train_label <- label[trainIndex]
+test_label <- label[-trainIndex]
+
+# Train an XGBoost model
+xgb_model <- xgboost(data = train_X, label = train_label, objective = "binary:logistic", nrounds = 10)
+
+# Make predictions on the test set
+predictions <- predict(xgb_model, newdata = test_X)
+
+# Convert probabilities to binary labels
+predicted_labels <- as.numeric(ifelse(predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+accuracy <- mean(predicted_labels == test_label)
+
+# Compute confusion matrix
+conf_matrix <- confusionMatrix(as.factor(predicted_labels), as.factor(test_label))
+
+# Calculate AUROC
+auroc <- roc(test_label, predictions)
+
+# Print results
+accuracy
+conf_matrix$table
+auroc
+```
+
+### logistic regression model
+
+```{r, echo=FALSE, warning=FALSE}
+# Set seed for reproducibility
+set.seed(1)
+
+# Identify rows corresponding to session 18
+session_18_row <- which(full_functional_tibble$session_id == 18)
+
+# Sample 100 rows for testing, without replacement
+testIndex <- sample(session_18_row, 100, replace = FALSE)
+
+# Create training index excluding the test index
+trainIndex <- 1:nrow(full_functional_tibble)
+trainIndex <- trainIndex[!(trainIndex %in% testIndex)]
+
+# Split data into training and testing sets
+train_df <- predictive_dat[trainIndex, ]
+train_X <- X[trainIndex, ]
+test_df <- predictive_dat[-trainIndex, ]
+test_X <- X[-trainIndex, ]
+
+# Assign labels for training and testing sets
+train_label <- label[trainIndex]
+test_label <- label[-trainIndex]
+
+# Train logistic regression model
+logit_model <- glm(train_label ~ ., data = train_df, family = binomial)
+
+# Make predictions on the test set
+logit_predictions <- predict(logit_model, newdata = test_df, type = "response")
+
+# Convert probabilities to binary labels
+logit_predicted_labels <- as.numeric(ifelse(logit_predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+logit_accuracy <- mean(logit_predicted_labels == test_label)
+
+# Compute confusion matrix
+logit_conf_matrix <- confusionMatrix(as.factor(logit_predicted_labels), as.factor(test_label))
+
+# Calculate AUROC
+logit_auroc <- roc(test_label, logit_predictions)
+
+# Print results
+logit_accuracy
+logit_conf_matrix$table
+logit_auroc
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+# Set seed for reproducibility
+set.seed(1)
+
+# Identify rows corresponding to session 1
+session_1_row <- which(full_functional_tibble$session_id == 1)
+
+# Sample 100 rows for testing, without replacement
+testIndex <- sample(session_1_row, 100, replace = FALSE)
+
+# Create training index excluding the test index
+trainIndex <- 1:nrow(full_functional_tibble)
+trainIndex <- trainIndex[!(trainIndex %in% testIndex)]
+
+# Split data into training and testing sets
+train_df <- predictive_dat[trainIndex, ]
+train_X <- X[trainIndex, ]
+test_df <- predictive_dat[-trainIndex, ]
+test_X <- X[-trainIndex, ]
+
+# Assign labels for training and testing sets
+train_label <- label[trainIndex]
+test_label <- label[-trainIndex]
+
+# Train logistic regression model
+logit_model <- glm(train_label ~ ., data = train_df, family = binomial)
+
+# Make predictions on the test set
+logit_predictions <- predict(logit_model, newdata = test_df, type = "response")
+
+# Convert probabilities to binary labels
+logit_predicted_labels <- as.numeric(ifelse(logit_predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+logit_accuracy <- mean(logit_predicted_labels == test_label)
+
+# Compute confusion matrix
+logit_conf_matrix <- confusionMatrix(as.factor(logit_predicted_labels), as.factor(test_label))
+
+# Calculate AUROC
+logit_auroc <- roc(test_label, logit_predictions)
+
+# Print results
+logit_accuracy
+logit_conf_matrix$table
+logit_auroc
+```
+
+### GBM model
+
+```{r, echo=FALSE, warning=FALSE}
+# Load necessary library
+library(gbm)
+library(pROC)
+
+# Set seed for reproducibility
+set.seed(1)
+
+# Identify rows corresponding to session 18
+session_18_row <- which(full_functional_tibble$session_id == 18)
+
+# Sample 100 rows for testing, without replacement
+testIndex <- sample(session_18_row, 100, replace = FALSE)
+
+# Create training index excluding the test index
+trainIndex <- 1:nrow(full_functional_tibble)
+trainIndex <- trainIndex[!(trainIndex %in% testIndex)]
+
+# Split data into training and testing sets
+train_df <- predictive_dat[trainIndex, ]
+train_X <- X[trainIndex, ]
+test_df <- predictive_dat[-trainIndex, ]
+test_X <- X[-trainIndex, ]
+
+# Assign labels for training and testing sets
+train_label <- label[trainIndex]
+test_label <- label[-trainIndex]
+
+# Train GBM model
+gbm_model <- gbm(formula = train_label ~ ., data = train_df, distribution = "bernoulli", n.trees = 100, interaction.depth = 4)
+
+# Make predictions on the test set
+gbm_predictions <- predict.gbm(gbm_model, newdata = test_df, n.trees = 100, type = "response")
+
+# Convert probabilities to binary labels
+gbm_predicted_labels <- as.numeric(ifelse(gbm_predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+gbm_accuracy <- mean(gbm_predicted_labels == test_label)
+
+# Compute confusion matrix
+gbm_conf_matrix <- confusionMatrix(as.factor(gbm_predicted_labels), as.factor(test_label))
+
+# Calculate AUROC
+gbm_auroc <- roc(test_label, gbm_predictions)
+
+# Print results
+gbm_accuracy
+gbm_conf_matrix$table
+gbm_auroc
+```
+
+```{r, echo=FALSE, warning=FALSE}
+# Load necessary libraries
+library(gbm)
+library(pROC)
+
+# Set seed for reproducibility
+set.seed(1)
+
+# Identify rows corresponding to session 1
+session_1_row <- which(full_functional_tibble$session_id == 1)
+
+# Sample 100 rows for testing, without replacement
+testIndex <- sample(session_1_row, 100, replace = FALSE)
+
+# Create training index excluding the test index
+trainIndex <- 1:nrow(full_functional_tibble)
+trainIndex <- trainIndex[!(trainIndex %in% testIndex)]
+
+# Split data into training and testing sets
+train_df <- predictive_dat[trainIndex, ]
+train_X <- X[trainIndex, ]
+test_df <- predictive_dat[-trainIndex, ]
+test_X <- X[-trainIndex, ]
+
+# Assign labels for training and testing sets
+train_label <- label[trainIndex]
+test_label <- label[-trainIndex]
+
+# Train GBM model
+gbm_model <- gbm(formula = train_label ~ ., data = train_df, distribution = "bernoulli", n.trees = 100, interaction.depth = 4)
+
+# Make predictions on the test set
+gbm_predictions <- predict.gbm(gbm_model, newdata = test_df, n.trees = 100, type = "response")
+
+# Convert probabilities to binary labels
+gbm_predicted_labels <- as.numeric(ifelse(gbm_predictions > 0.5, 1, 0))
+
+# Calculate accuracy
+gbm_accuracy <- mean(gbm_predicted_labels == test_label)
+
+# Compute confusion matrix
+gbm_conf_matrix <- confusionMatrix(as.factor(gbm_predicted_labels), as.factor(test_label))
+
+# Calculate AUROC
+gbm_auroc <- roc(test_label, gbm_predictions)
+
+# Print results
+gbm_accuracy
+gbm_conf_matrix$table
+gbm_auroc
+```
+## Section 6 Discussion
+This study embarked on a comprehensive journey through exploratory data analysis, data integration, and predictive modeling to understand the factors influencing the success rate in a neuroscience experiment context. The exploration revealed significant relationships within the data, suggesting that certain features such as contrast side and contrast difference play pivotal roles in predicting outcomes. The data integration phase further corroborated these findings, highlighting a consistent pattern across sections and mice, which pointed towards a fundamental underlying structure in the experimental data.
+
+The predictive modeling section utilized three distinct models: XGBoost, logistic regression, and GBM. Each model achieved a similar accuracy rate of approximately 70%, suggesting a level of robustness in the predictions despite the differences in model architectures and assumptions. This outcome implies that the selected features possess a genuine predictive capability, which is not overly dependent on the modeling technique employed. However, it is essential to acknowledge the limitations of a 70% accuracy rate. While respectable, this level of accuracy also indicates room for improvement and a possibility that other, unexplored features or model configurations could enhance the predictive performance.
+
+The prediction performance on the test sets further solidified the models' validity, demonstrating their applicability to unseen data. This consistency is crucial for practical applications, suggesting that the models can be reliably used in similar experimental settings to predict outcomes, thereby aiding in experimental design and interpretation.
+
+Several avenues for future research emerge from the current study. First, a deeper exploration into feature engineering could uncover more nuanced relationships within the data, potentially improving model performance. Secondly, the application of more complex modeling techniques, such as deep learning or ensemble methods that combine multiple models, could be explored to push the accuracy rate beyond the current plateau. Additionally, cross-validation techniques could be employed more extensively to ensure that the models are not overfitting to the training data, thereby enhancing their generalizability.
+
+In conclusion, this study highlights the importance of a methodical approach to data analysis in neuroscience experiments, from exploratory analysis to predictive modeling. The findings underscore the potential of machine learning models to uncover insights from experimental data, offering a promising avenue for enhancing experimental design and analysis in neuroscience research. However, the pursuit of higher accuracy and the exploration of alternative predictive variables and models remain critical areas for future investigation.
